@@ -133,7 +133,7 @@ fn print(accounts: &Vec<Account>, stock_info: &HashMap<String, (f64, f64)>) {
                      name,
                      price,
                      clr(net),
-                     net,
+                     net*stock.amount,
                      clr(net_perc),
                      net_perc,
                      clr(total_net),
