@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
-use std::io::BufReader;
 
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
 use futures::future::join_all;
+use std::io::Read;
+
+use toml::Table;
 
 #[derive(Debug, Deserialize)]
 struct Account {
@@ -24,7 +26,7 @@ struct Stock {
 
 #[tokio::main]
 async fn main() {
-    let path = format!("{}/.local/share/stocks.yaml", env::var("HOME").unwrap());
+    let path = format!("{}/.local/share/stocks.toml", env::var("HOME").unwrap());
     let accounts = parse_accounts(&path);
 
     let mut stock_info = HashMap::new();
@@ -41,10 +43,35 @@ async fn main() {
 }
 
 fn parse_accounts(path: &str) -> Vec<Account> {
-    let f = File::open(path).unwrap();
-    let reader = BufReader::new(f);
+    let mut f = File::open(path).unwrap();
+    let mut buf = String::new();
 
-    serde_yaml::from_reader(reader).unwrap()
+    f.read_to_string(&mut buf).unwrap();
+    let t = buf.parse::<Table>().unwrap();
+
+    let mut accts = vec![];
+
+    for (name, val) in t.iter() {
+        let mut stocks = vec![];
+
+        for (stock_name, info) in val.as_table().unwrap().iter() {
+            let amount = info.get("num").unwrap().as_float().unwrap();
+            let cost_basis = info.get("price").unwrap().as_float().unwrap();
+
+            stocks.push(Stock {
+                symbol: stock_name.clone(),
+                amount,
+                cost_basis,
+            })
+        }
+
+        accts.push(Account {
+            stocks,
+            name: name.clone(),
+        });
+    }
+
+    accts
 }
 
 async fn update_stock_info(info: HashMap<String, (f64, f64)>) -> HashMap<String, (f64, f64)> {
@@ -65,11 +92,6 @@ async fn update_stock_info(info: HashMap<String, (f64, f64)>) -> HashMap<String,
         .into_iter()
         .map(|res| res.unwrap())
         .collect()
-
-    // for (symbol, i) in info.iter_mut() {
-    // *i = get_nasdaq_value(symbol, "stocks")
-    // .unwrap_or_else(|| get_nasdaq_value(symbol, "etf").unwrap_or_default());
-    // }
 }
 
 async fn get_nasdaq_value(symbol: &str, class: &str) -> Option<(f64, f64)> {
